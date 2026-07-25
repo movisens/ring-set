@@ -44,6 +44,7 @@ class RingViewModel(app: Application) : AndroidViewModel(app) {
     val status = ble.status
     val battery = ble.battery
     val interval = ble.interval
+    val clockSync = ble.clockSync
     val syncing = ble.syncingState
     val syncStatus = ble.syncStatus
     val liveHr = ble.liveHr
@@ -115,6 +116,7 @@ class RingViewModel(app: Application) : AndroidViewModel(app) {
     private var manualHr = false          // Stats "Measure" toggle wants the stream
     @Volatile private var streamOn = false // whether the shared live stream is currently running
     private var samplerJob: Job? = null
+    private var lastAppHrSavedEpoch = 0L
 
     /** Whoever needs the sensor: a workout, a manual measure, or continuous logging — but never mid-sync. */
     private fun wantStream() = !syncing.value && (workoutActive.value || manualHr || passiveHrEnabled)
@@ -137,12 +139,20 @@ class RingViewModel(app: Application) : AndroidViewModel(app) {
                 reconcileStream()
                 if (passiveHrEnabled && streamOn) ble.liveHr.value?.let { bpm ->
                     if (bpm in 30..220) {
-                        repo.insertSample(MetricType.HR, System.currentTimeMillis() / 1000, bpm)
-                        repo.exportCsvs()
+                        saveAppHr(bpm, minGapSeconds = 55)
                     }
                 }
             }
         }
+    }
+
+    /** Save live HR under the phone clock, with a cadence guard to avoid duplicate rows. */
+    private suspend fun saveAppHr(bpm: Int, minGapSeconds: Long) {
+        val now = System.currentTimeMillis() / 1000
+        if (now - lastAppHrSavedEpoch < minGapSeconds) return
+        repo.insertAppSample(MetricType.HR, now, bpm)
+        lastAppHrSavedEpoch = now
+        repo.exportCsvs()
     }
 
     // ---- auto-sync (while the app is open) ----
@@ -162,7 +172,10 @@ class RingViewModel(app: Application) : AndroidViewModel(app) {
         autoSyncJob?.cancel()
         autoSyncJob = viewModelScope.launch {
             while (isActive) {
-                val mins = if (passiveHrEnabled) 10 else lastInterval.coerceIn(1, 255)
+                // Ring history is stored in 5-minute slots. Syncing every 90 seconds when the
+                // requested measurement interval is 1 minute only interrupts measurement cycles
+                // and cannot reveal data any sooner.
+                val mins = if (passiveHrEnabled) 10 else lastInterval.coerceIn(5, 255)
                 delay(mins * 60_000L + 30_000L)
                 if (autoSyncEnabled && !workoutActive.value && !syncing.value && !manualHr) sync()
             }
@@ -192,10 +205,20 @@ class RingViewModel(app: Application) : AndroidViewModel(app) {
         ble.logIntervalMin = lastInterval
         // When the ring reports a shake in camera mode, tap the foreground camera's shutter.
         ble.onCameraShutter = { CameraShutterService.instance?.triggerShutter() }
-        viewModelScope.launch { repo.rememberRing(ble.mac, "R04") }
-        // Append live HR into the current workout while one is running.
         viewModelScope.launch {
-            ble.liveHr.collect { v -> if (workoutActive.value && v != null) workoutSamples.value = workoutSamples.value + v }
+            repo.rememberRing(ble.mac, "R04")
+            // Keep on-phone exports aligned with DB migrations (for example the v4 source flag)
+            // even before the next successful ring connection or manual measurement.
+            repo.exportCsvs()
+        }
+        // Append live HR into the current workout and persist explicit app measurements.
+        viewModelScope.launch {
+            ble.liveHr.collect { v ->
+                if (workoutActive.value && v != null) workoutSamples.value = workoutSamples.value + v
+                if (v != null && v in 30..220 && (manualHr || workoutActive.value)) {
+                    saveAppHr(v, minGapSeconds = 10)
+                }
+            }
         }
         // Keep our interval (auto-sync + passive-HR cadence) in step with what the ring actually reports.
         viewModelScope.launch {
@@ -232,6 +255,7 @@ class RingViewModel(app: Application) : AndroidViewModel(app) {
     fun resetMeasurement() = ble.resetInterval(lastInterval.takeIf { it in 1..255 } ?: 5)
     fun readInterval() = ble.readInterval()
     fun readBattery() = ble.readBattery()
+    fun checkAndSetTime() = ble.checkAndSetTime()
 
     fun sync() = ble.sync { result ->
         viewModelScope.launch {
@@ -278,7 +302,16 @@ class RingViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     // ---- live HR (also used by resting-HR measurement, no workout) ----
-    fun startLiveHr() { manualHr = true; reconcileStream() }
+    fun startLiveHr() {
+        manualHr = true
+        // A new explicit measurement saves its first valid value immediately instead of waiting
+        // for the once-a-minute continuous-logging cadence.
+        lastAppHrSavedEpoch = 0L
+        reconcileStream()
+        ble.liveHr.value?.takeIf { it in 30..220 }?.let { bpm ->
+            viewModelScope.launch { saveAppHr(bpm, minGapSeconds = 0) }
+        }
+    }
     fun stopLiveHr() { manualHr = false; reconcileStream() }
 
     // ---- real-time workout ----

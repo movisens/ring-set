@@ -25,16 +25,16 @@ class RingRepository(private val context: Context) {
     suspend fun saveWorkout(w: WorkoutEntity) = dao.insertWorkout(w)
 
     suspend fun persist(result: SyncResult) {
-        dao.insertSamples(result.samples.map { SampleEntity(it.metric.key, it.epoch, it.value) })
+        dao.insertRingSamples(result.samples.map { SampleEntity(it.metric.key, it.epoch, it.value, SOURCE_RING) })
         dao.insertSleep(result.sleep.map { SleepEntity(it.epoch, it.stage, it.durationMin) })
     }
 
     /** Newest stored epoch (seconds) for a metric, or null if none — used to detect stale HR. */
     suspend fun newestEpoch(m: MetricType): Long? = dao.newestEpoch(m.key)
 
-    /** Store a single reading (phone-clock timestamped), e.g. a live HR top-up. */
-    suspend fun insertSample(m: MetricType, epoch: Long, value: Int) =
-        dao.insertSamples(listOf(SampleEntity(m.key, epoch, value)))
+    /** Store a protected phone-clock reading; ring-history syncs can never replace it. */
+    suspend fun insertAppSample(m: MetricType, epoch: Long, value: Int) =
+        dao.upsertAppSamples(listOf(SampleEntity(m.key, epoch, value, SOURCE_APP)))
 
     /** Dump the DB to CSVs in the app's files dir (so pull-data.ps1 / Share keep working). */
     suspend fun exportCsvs(): List<File> {
@@ -42,10 +42,10 @@ class RingRepository(private val context: Context) {
         val out = mutableListOf<File>()
         for (m in MetricType.entries) {
             val rows = dao.samplesNow(m.key)
-            val header = "timestamp,epoch_s,${valueHeader(m)}\n"
+            val header = "timestamp,epoch_s,${valueHeader(m)},source\n"
             val sb = StringBuilder(header)
             for (r in rows) sb.append(fmt.format(Date(r.epoch * 1000))).append(',')
-                .append(r.epoch).append(',').append(r.value).append('\n')
+                .append(r.epoch).append(',').append(r.value).append(',').append(r.source).append('\n')
             out += File(context.filesDir, "ring_${m.key}.csv").apply { writeText(sb.toString()) }
         }
         val sleep = dao.sleepNow()
@@ -76,7 +76,10 @@ class RingRepository(private val context: Context) {
         for (m in MetricType.entries) {
             val rows = dao.samplesNow(m.key)
             val arr = org.json.JSONArray()
-            for (r in rows) arr.put(org.json.JSONObject().put("e", r.epoch).put("t", fmt.format(Date(r.epoch * 1000))).put("v", r.value))
+            for (r in rows) arr.put(
+                org.json.JSONObject().put("e", r.epoch).put("t", fmt.format(Date(r.epoch * 1000)))
+                    .put("v", r.value).put("source", r.source)
+            )
             metrics.put(m.key, org.json.JSONObject().put("label", m.label).put("unit", m.unit).put("count", rows.size).put("samples", arr))
         }
         root.put("metrics", metrics)

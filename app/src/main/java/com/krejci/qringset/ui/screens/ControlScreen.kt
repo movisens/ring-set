@@ -46,9 +46,12 @@ import android.provider.MediaStore
 import android.provider.Settings
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.krejci.qringset.ble.Conn
+import com.krejci.qringset.ble.ClockSyncState
 import com.krejci.qringset.ui.RingViewModel
 import com.krejci.qringset.ui.components.ScreenHeader
 import com.krejci.qringset.ui.components.SectionLabel
+import java.text.DateFormat
+import java.util.Date
 
 private val CARD = RoundedCornerShape(18.dp)
 
@@ -98,6 +101,8 @@ fun ControlScreen(vm: RingViewModel) {
 
     BackgroundLoggingSection(vm)
 
+    RingTimeSection(vm)
+
     // ---- connection: reconnect option + actions in one card ----
     SectionLabel("Connection")
     Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface), shape = CARD) {
@@ -145,6 +150,61 @@ fun ControlScreen(vm: RingViewModel) {
 
     CameraShutterSection(vm)
     Spacer(Modifier.height(12.dp))
+}
+
+@Composable
+private fun RingTimeSection(vm: RingViewModel) {
+    val clock by vm.clockSync.collectAsStateWithLifecycle()
+    val syncing by vm.syncing.collectAsStateWithLifecycle()
+    val busy = clock.state == ClockSyncState.CONNECTING || clock.state == ClockSyncState.SETTING
+    val detail = when (clock.state) {
+        ClockSyncState.NOT_CHECKED -> "Not checked in this app session yet"
+        ClockSyncState.CONNECTING -> "Connecting to update the ring clock…"
+        ClockSyncState.SETTING -> "Writing the phone's current local time…"
+        ClockSyncState.CONFIRMED -> {
+            val whenText = DateFormat.getDateTimeInstance(DateFormat.SHORT, DateFormat.MEDIUM)
+                .format(Date(clock.confirmedAtMs))
+            val why = when (clock.source) {
+                "connection" -> "after connection"
+                "sync" -> "after data sync"
+                else -> "manually"
+            }
+            "Confirmed by the ring $whenText · $why"
+        }
+        ClockSyncState.FAILED -> "No confirmation received — wake the ring and try again"
+    }
+
+    SectionLabel("Ring time")
+    Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface), shape = CARD) {
+        Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            Text("Automatic clock sync", fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.onSurface)
+            Text(
+                "The phone's local date and time are sent after every connection and completed data sync.",
+                fontSize = 12.sp,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            Text(
+                detail,
+                fontSize = 13.sp,
+                fontWeight = FontWeight.Medium,
+                color = if (clock.state == ClockSyncState.FAILED) MaterialTheme.colorScheme.error
+                else MaterialTheme.colorScheme.onSurface,
+            )
+            Button(
+                onClick = { vm.checkAndSetTime() },
+                enabled = !busy && !syncing,
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                Text(if (busy) "Checking & setting…" else "Check & set now")
+            }
+            Text(
+                "The ring has no read-clock command. This writes the current phone time and waits " +
+                    "for the ring to confirm it accepted the command.",
+                fontSize = 11.sp,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+    }
 }
 
 /** Slim connection/status line: a state-coloured dot, the latest status text, and battery %. */

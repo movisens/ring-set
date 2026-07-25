@@ -9,7 +9,7 @@ import androidx.sqlite.db.SupportSQLiteDatabase
 
 @Database(
     entities = [SampleEntity::class, SleepEntity::class, KnownRingEntity::class, WorkoutEntity::class],
-    version = 3,
+    version = 4,
     exportSchema = false,
 )
 abstract class RingDb : RoomDatabase() {
@@ -36,10 +36,17 @@ abstract class RingDb : RoomDatabase() {
             }
         }
 
+        /** v4 identifies phone/app readings so later ring-history syncs cannot replace them. */
+        private val MIGRATION_3_4 = object : Migration(3, 4) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE `samples` ADD COLUMN `source` TEXT NOT NULL DEFAULT 'ring'")
+            }
+        }
+
         @Volatile private var instance: RingDb? = null
         fun get(context: Context): RingDb = instance ?: synchronized(this) {
             instance ?: Room.databaseBuilder(context.applicationContext, RingDb::class.java, "ring.db")
-                .addMigrations(MIGRATION_1_2, MIGRATION_2_3)
+                .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4)
                 .build().also { instance = it }
         }
     }

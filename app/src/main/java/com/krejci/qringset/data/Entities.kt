@@ -1,10 +1,20 @@
 package com.krejci.qringset.data
 
+import androidx.room.ColumnInfo
 import androidx.room.Entity
 import androidx.room.PrimaryKey
 
 @Entity(tableName = "samples", primaryKeys = ["metric", "epoch"])
-data class SampleEntity(val metric: String, val epoch: Long, val value: Int)
+data class SampleEntity(
+    val metric: String,
+    val epoch: Long,
+    val value: Int,
+    /** "app" readings use the phone clock and are never replaced by a ring-history sync. */
+    @ColumnInfo(defaultValue = "'ring'") val source: String = SOURCE_RING,
+)
+
+const val SOURCE_RING = "ring"
+const val SOURCE_APP = "app"
 
 @Entity(tableName = "sleep", primaryKeys = ["epoch"])
 data class SleepEntity(val epoch: Long, val stage: Int, val durationMin: Int)

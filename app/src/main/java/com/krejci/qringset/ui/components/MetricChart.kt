@@ -194,9 +194,25 @@ fun MetricChart(
     onWindow: (Pair<Float, Float>) -> Unit,
     unit: String = "",
 ) {
-    if (points.size < 2) {
+    if (points.isEmpty()) {
         Box(Modifier.fillMaxWidth().height(250.dp), contentAlignment = Alignment.Center) {
             Text("No data yet — pull it in on the Data tab", color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+        return
+    }
+    if (points.size == 1) {
+        val point = points.single()
+        val whenText = SimpleDateFormat("MMM d · HH:mm:ss", Locale.US).format(Date(point.epoch * 1000))
+        Box(Modifier.fillMaxWidth().height(250.dp), contentAlignment = Alignment.Center) {
+            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                Text(
+                    "${point.value.roundToInt()}${if (unit.isBlank()) "" else " $unit"}",
+                    color = color,
+                    style = MaterialTheme.typography.headlineLarge,
+                )
+                Text("One reading in this range", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text(whenText, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
         }
         return
     }

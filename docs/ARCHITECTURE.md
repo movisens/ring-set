@@ -78,7 +78,8 @@ com.krejci.qringset
 - **No Android types in `domain/`** — it takes primitives/models and returns models, so it can be
   reasoned about (and unit-tested) in isolation.
 - **BLE protocol split**: `RingProtocol` is the pure codec; `RingBle` owns the stateful GATT
-  connection and the sync/live-HR flows.
+  connection and the sync/live-HR flows. Confirmed wire quirks and HR-history diagnostics are
+  recorded in [RING_PROTOCOL.md](RING_PROTOCOL.md).
 
 ## Threading
 

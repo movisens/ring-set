@@ -6,12 +6,14 @@ Instructions for an automated agent (or a human) to export the data that the
 ## What/where
 - The app reads the ring's stored logs over BLE and writes/merges them into CSVs in its
   private files dir on the phone: `/data/data/com.krejci.qringset/files/`.
-  - `ring_hr.csv` — `timestamp,epoch_s,bpm`
-  - `ring_steps.csv` — `timestamp,epoch_s,steps` (15-min buckets)
-  - `ring_spo2.csv` — `timestamp,epoch_s,spo2` (hourly %)
+  - `ring_hr.csv` — `timestamp,epoch_s,bpm,source`
+  - `ring_steps.csv` — `timestamp,epoch_s,steps,source` (15-min buckets)
+  - `ring_spo2.csv` — `timestamp,epoch_s,spo2,source` (hourly %)
   - `ring_sleep.csv` — `timestamp,epoch_s,stage,stage_label,duration_min`
-  - `ring_stress.csv` — `timestamp,epoch_s,stress` (30-min)
-  - `ring_hrv.csv` — `timestamp,epoch_s,hrv_ms`
+  - `ring_stress.csv` — `timestamp,epoch_s,stress,source` (30-min)
+  - `ring_hrv.csv` — `timestamp,epoch_s,hrv_ms,source`
+- `source` is `ring` for synced device history and `app` for phone-clocked live HR.
+  Ring syncs never overwrite an existing app-origin sample.
 - `timestamp` is local ISO-8601, `epoch_s` is Unix seconds.
 - Each sync **merges** into the existing CSVs keyed by timestamp, so history accumulates
   across syncs even beyond the ring's small rolling buffer.
@@ -44,3 +46,7 @@ sheet (Drive, email, Files, etc.) — useful when the phone isn't tethered to th
   need the in-app Share or a `MediaStore`/public-Downloads export instead.
 - All six metrics (HR, steps, SpO2, sleep, stress, HRV) sync in one "Sync data" pass.
   `pull-data.ps1` copies every `*.csv` in the app's files dir automatically.
+- A green ring LED does not prove that HR history reached the phone. If live HR works but
+  `source=ring` rows are missing, inspect `RingHrHistory` in logcat. History commands require a
+  modulo-256 checksum and a timezone-less local-wall epoch, and this firmware returns five-minute
+  HR slots. See [docs/RING_PROTOCOL.md](docs/RING_PROTOCOL.md).

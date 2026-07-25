@@ -8,8 +8,15 @@ import kotlinx.coroutines.flow.Flow
 
 @Dao
 interface RingDao {
+    /**
+     * History syncs are additive. IGNORE is intentional: an existing phone-clocked app reading at
+     * the same metric/second wins permanently, and repeated ring syncs do not rewrite local data.
+     */
+    @Insert(onConflict = OnConflictStrategy.IGNORE)
+    suspend fun insertRingSamples(list: List<SampleEntity>)
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
-    suspend fun insertSamples(list: List<SampleEntity>)
+    suspend fun upsertAppSamples(list: List<SampleEntity>)
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertSleep(list: List<SleepEntity>)

@@ -29,7 +29,8 @@ An eight-tab Jetpack Compose app with a floating navigation bar:
   merges them into CSVs, and shares/exports them.
 - **Ring** — battery %, connection state, and **multiple rings** (scan, name, switch).
 - **Control** — heart-rate logging **interval** presets (1 · 3 · 5 · 10 · 30 · 60) + a custom
-  1–255 min setter, a "reconnect after setting" option, and **HR alerts** (spike / prolonged-high).
+  1–255 min setter, automatic and manual **ring clock sync**, a "reconnect after setting" option,
+  and **HR alerts** (spike / prolonged-high).
 - **You (Profile)** — age, sex, height, weight, resting HR and goals that personalise the insights;
   resting HR can be typed, computed from your data, or **measured on the spot**.
 
@@ -91,30 +92,40 @@ files dir:
 
 | file | columns |
 |---|---|
-| `ring_hr.csv` | `timestamp,epoch_s,bpm` |
-| `ring_steps.csv` | `timestamp,epoch_s,steps` (15-min buckets) |
-| `ring_spo2.csv` | `timestamp,epoch_s,spo2` (hourly %) |
+| `ring_hr.csv` | `timestamp,epoch_s,bpm,source` |
+| `ring_steps.csv` | `timestamp,epoch_s,steps,source` (15-min buckets) |
+| `ring_spo2.csv` | `timestamp,epoch_s,spo2,source` (hourly %) |
 | `ring_sleep.csv` | `timestamp,epoch_s,stage,stage_label,duration_min` (light/deep/rem/awake) |
-| `ring_stress.csv` | `timestamp,epoch_s,stress` (30-min) |
-| `ring_hrv.csv` | `timestamp,epoch_s,hrv_ms` |
+| `ring_stress.csv` | `timestamp,epoch_s,stress,source` (30-min) |
+| `ring_hrv.csv` | `timestamp,epoch_s,hrv_ms,source` |
 
 The ring only keeps a small rolling buffer, so sync regularly — the merge keeps everything you've
 already pulled. Get it off the phone via the in-app **Export & share** (Android share sheet) or with
 [`pull-data.ps1`](pull-data.ps1) → copies every CSV to a folder on your PC (default
 `Desktop\ring-data`); see [AGENTS.md](AGENTS.md).
 
+`source` is `ring` for device-history syncs and `app` for phone-clocked live measurements.
+App-origin samples are protected: a later ring sync cannot overwrite them.
+
 ## How it works
 
 The ring exposes a Nordic-UART-style GATT service. Commands are 16-byte packets
-`[cmd, …subdata…, checksum]` where `checksum = sum(bytes[0:15]) % 255`.
+`[cmd, …subdata…, checksum]` where `checksum = sum(bytes[0:15]) & 0xff`.
 
 | | value |
 |---|---|
 | Service | `6E40FFF0-…` · Write (RX) `6E400002-…` · Notify (TX) `6E400003-…` |
 | Set / read interval | `0x16 0x02 0x01 <min>` / `0x16 0x01` |
+| Set ring date/time | `0x01 <BCD yy mm dd HH MM ss>` (on connect and after each sync) |
 | HR / steps / stress / HRV logs | `0x15` / `0x43` / `0x37` / `0x39` (tagged, multi-packet) |
 | Battery | `0x03` |
 | Real-time HR | start `0x69 0x01 0x00`, poll cmd 30 `0x1E 0x03` (~1 s), stop `0x6A 0x01 0x00 0x00` |
+
+Important HR-history quirks: the checksum wraps modulo 256 (not 255), dated requests use
+a timezone-less local-wall epoch rather than a UTC Unix epoch, and this firmware returns history in
+five-minute slots. A working green LED or live reading does not prove that history transfer worked.
+See [docs/RING_PROTOCOL.md](docs/RING_PROTOCOL.md) for the confirmed packet layout and debugging
+notes.
 
 SpO₂ and sleep use a second **"big data" channel** (service `de5bf728…`): a 7-byte request
 `[0xbc, type, 01 00 ff 00 ff]` (`0x2a` SpO₂ / `0x27` sleep) and a length-framed response reassembled

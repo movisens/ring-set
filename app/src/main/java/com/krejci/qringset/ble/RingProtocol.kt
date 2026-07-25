@@ -6,7 +6,7 @@ import java.util.Calendar
  * Pure, stateless helpers for the Colmi/QRing BLE wire format — no Android or connection state.
  *
  * Commands are 16-byte packets `[cmd, …subdata…, checksum]` where
- * `checksum = sum(bytes[0..14]) % 255`. Log payloads pack little-endian integers and
+ * `checksum = sum(bytes[0..14]) & 0xff`. Log payloads pack little-endian integers and
  * per-day timestamps, so the byte readers and epoch helpers the parsers need live here too.
  */
 object RingProtocol {
@@ -17,7 +17,7 @@ object RingProtocol {
         System.arraycopy(head, 0, p, 0, head.size)
         var sum = 0
         for (i in 0..14) sum += p[i].toInt() and 0xFF
-        p[15] = (sum % 255).toByte()
+        p[15] = (sum and 0xFF).toByte()
         return p
     }
 
@@ -36,9 +36,9 @@ object RingProtocol {
     fun bcdEncode(v: Int): Byte = (((v / 10) shl 4) or (v % 10)).toByte()
 
     /**
-     * Set-time command header (cmd 0x01): BCD year(%100)/month/day/hour/minute/second + language
-     * byte (1 = English). The QRing app sends this on every connect; without it the ring's clock
-     * drifts and its stored readings get stamped at the wrong time. Checksum is added by [packet].
+     * Set-time command header (cmd 0x01): BCD year(%100)/month/day/hour/minute/second.
+     * Remaining packet bytes must stay zero; some firmware interprets an extra byte after seconds
+     * as part of its date state. Checksum is added by [packet].
      */
     fun setTimeHeader(now: Calendar = Calendar.getInstance()): ByteArray = byteArrayOf(
         0x01,
@@ -48,7 +48,6 @@ object RingProtocol {
         bcdEncode(now.get(Calendar.HOUR_OF_DAY)),
         bcdEncode(now.get(Calendar.MINUTE)),
         bcdEncode(now.get(Calendar.SECOND)),
-        0x01,
     )
 
     /** Space-separated hex dump, for logging raw packets. */
@@ -60,6 +59,16 @@ object RingProtocol {
         c.set(Calendar.HOUR_OF_DAY, 0); c.set(Calendar.MINUTE, 0); c.set(Calendar.SECOND, 0); c.set(Calendar.MILLISECOND, 0)
         c.add(Calendar.DAY_OF_MONTH, dayOffset)
         return c.timeInMillis / 1000
+    }
+
+    /**
+     * Convert a real Unix epoch to the ring's timezone-less "local wall clock as UTC" epoch.
+     * Timestamped history requests use this representation rather than actual UTC.
+     */
+    fun localWallEpoch(epochSec: Long): Long {
+        val c = Calendar.getInstance()
+        c.timeInMillis = epochSec * 1000
+        return epochSec + (c.get(Calendar.ZONE_OFFSET) + c.get(Calendar.DST_OFFSET)) / 1000
     }
 
     /** Unix seconds for a local wall-clock date/time. */

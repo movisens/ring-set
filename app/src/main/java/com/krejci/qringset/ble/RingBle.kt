@@ -28,6 +28,12 @@ import java.util.UUID
 enum class Conn { DISCONNECTED, CONNECTING, CONNECTED }
 data class IntervalInfo(val enabled: Boolean, val minutes: Int)
 data class BatteryInfo(val level: Int, val charging: Boolean)
+enum class ClockSyncState { NOT_CHECKED, CONNECTING, SETTING, CONFIRMED, FAILED }
+data class ClockSyncInfo(
+    val state: ClockSyncState = ClockSyncState.NOT_CHECKED,
+    val confirmedAtMs: Long = 0L,
+    val source: String = "",
+)
 
 /**
  * Talks to a Colmi R0x / QRing ring over BLE. All protocol logic lives here; the UI only
@@ -41,6 +47,7 @@ class RingBle(private val context: Context, @Volatile var mac: String) {
     val status = MutableStateFlow("Ready")
     val battery = MutableStateFlow<BatteryInfo?>(null)
     val interval = MutableStateFlow<IntervalInfo?>(null)
+    val clockSync = MutableStateFlow(ClockSyncInfo())
     val syncingState = MutableStateFlow(false)
     val syncStatus = MutableStateFlow("")
     /** Live heart rate (bpm) while a real-time session runs, else null. */
@@ -59,6 +66,10 @@ class RingBle(private val context: Context, @Volatile var mac: String) {
     private var ready = false
     private var pending: (() -> Unit)? = null
     private var connectTimeout: Runnable? = null
+    private var clockTimeout: Runnable? = null
+    private var clockRequestId = 0
+    private var clockAttempt = 0
+    private var clockSource = ""
     private val cccdQueue = ArrayDeque<BluetoothGattDescriptor>()
     private var liveKeepAlive: Runnable? = null
     private var liveOn = false
@@ -129,10 +140,13 @@ class RingBle(private val context: Context, @Volatile var mac: String) {
         private val HR_VALID = 30..220
         private const val CONNECT_TIMEOUT_MS = 12_000L
         private const val RECONNECT_DELAY_MS = 1_600L
+        private const val CLOCK_ACK_TIMEOUT_MS = 750L
         private const val SYNC_STALL_MS = 8_000L
         private const val LIVE_KEEPALIVE_MS = 1_000L
         private const val LIVE_RENEW_TICKS = 33   // the ring measures in ~35s bursts, so re-trigger just before it idles
         private const val LIVE_TAG = "RingLive"
+        private const val CLOCK_TAG = "RingClock"
+        private const val HR_HISTORY_TAG = "RingHrHistory"
     }
 
     // ---------- public actions ----------
@@ -169,6 +183,25 @@ class RingBle(private val context: Context, @Volatile var mac: String) {
 
     fun readInterval() { status.value = "Reading…"; withRing { doWrite(buildReadPacket()) } }
     fun readBattery() { withRing { doWrite(packet(byteArrayOf(CMD_BATTERY.toByte()))) } }
+
+    /**
+     * Set the ring to the phone's current local wall-clock and wait for the ring's cmd 0x01
+     * acknowledgement. This protocol has no read-clock request, so acknowledgement is the strongest
+     * available check that the new time was accepted.
+     */
+    fun checkAndSetTime() {
+        val a = adapter()
+        if (a == null || !a.isEnabled) {
+            status.value = "Bluetooth is off — turn it on"
+            clockSync.value = ClockSyncInfo(ClockSyncState.FAILED, source = "manual")
+            return
+        }
+        if (!ready || writeChar == null) {
+            clockSync.value = ClockSyncInfo(ClockSyncState.CONNECTING, source = "manual")
+        }
+        pending = { startClockSync("manual") }
+        if (ready && writeChar != null) runPending() else connect(a)
+    }
 
     fun reconnect(applyMin: Int?, thenReady: (() -> Unit)? = null) {
         val a = adapter() ?: return
@@ -302,7 +335,12 @@ class RingBle(private val context: Context, @Volatile var mac: String) {
         connecting = true; conn.value = Conn.CONNECTING; status.value = "Connecting to ring…"
         try {
             gatt = a.getRemoteDevice(mac).connectGatt(context, false, cb, BluetoothDevice.TRANSPORT_LE)
-        } catch (e: Exception) { connecting = false; status.value = "Connect error"; return }
+        } catch (e: Exception) {
+            connecting = false
+            status.value = "Connect error"
+            failClockSyncIfPending()
+            return
+        }
         cancelConnectTimeout()
         connectTimeout = Runnable {
             if (connecting && !ready) {
@@ -319,34 +357,98 @@ class RingBle(private val context: Context, @Volatile var mac: String) {
     private fun onReady() {
         cancelConnectTimeout(); ready = true; connecting = false; conn.value = Conn.CONNECTED
         status.value = "Connected ✓"
-        // Match QRing: push the phone's wall-clock to the ring on every connect, so its stored
-        // readings (esp. heart-rate history, which is stamped from the ring's own clock) line up
-        // with real time instead of drifting out of the app's recent-time windows.
-        // Spaced writes: two write-without-response packets fired back-to-back drop the second on
-        // the Android BLE stack, so each connect-time command gets its own slot. This also fixes a
-        // bug where the first sync request was silently dropped right after a write.
-        handler.post { setRingTime() }
+        // Match QRing: push the phone's wall-clock to the ring on every connect and require its
+        // acknowledgement. Give freshly booted firmware a moment to settle, then retry the clock
+        // packet once before any other initialization traffic.
+        handler.postDelayed({ startClockSync("connection") }, 500)
         // Re-arm HR logging every connect, like QRing does. Without this the ring can quietly stop
         // writing HR history (its other metrics keep logging), leaving heart rate frozen days back.
-        handler.postDelayed({ rearmHrLogging() }, 160)
+        handler.postDelayed({ rearmHrLogging() }, 2_200)
         // Run on the main handler so the sync accumulator and the (also main-posted) BLE
         // responses share one thread. Battery only when idle, to not collide with the sync's first request.
-        handler.postDelayed({ if (pending != null) runPending() else readBatteryNow() }, 340)
+        handler.postDelayed({ if (pending != null) runPending() else readBatteryNow() }, 2_450)
         // Read the interval back (spaced after the rearm write) so the Control tab shows what the ring
         // actually holds — surfaces a stuck 0/OFF instead of the app assuming its own last value.
-        handler.postDelayed({ if (ready && pending == null) doWrite(buildReadPacket()) }, 540)
+        handler.postDelayed({ if (ready && !syncing) doWrite(buildReadPacket()) }, 2_650)
         // If the user left camera mode on, re-arm it after a reconnect.
-        if (cameraOn) handler.post { doWrite(packet(byteArrayOf(CMD_CAMERA.toByte(), CAM_ENTER.toByte()))); scheduleCameraKeepAlive() }
-        // One-shot hook (e.g. sync-after-reconnect), run after the pending action.
-        onReadyOnce?.let { val f = it; onReadyOnce = null; handler.post(f) }
+        if (cameraOn) handler.postDelayed({
+            if (ready) {
+                doWrite(packet(byteArrayOf(CMD_CAMERA.toByte(), CAM_ENTER.toByte())))
+                scheduleCameraKeepAlive()
+            }
+        }, 3_050)
+        // One-shot hook (e.g. sync-after-reconnect), run after initialization and the pending action.
+        onReadyOnce?.let { val f = it; onReadyOnce = null; handler.postDelayed(f, 2_850) }
     }
 
     @SuppressLint("MissingPermission")
     private fun readBatteryNow() { doWrite(packet(byteArrayOf(CMD_BATTERY.toByte()))) }
 
-    /** Push the phone's current wall-clock time to the ring (Colmi set-time, cmd 0x01). */
+    /** Push the current local wall-clock to the ring and retry once unless cmd 0x01 is acknowledged. */
     @SuppressLint("MissingPermission")
-    private fun setRingTime() { if (ready && writeChar != null) doWrite(packet(RingProtocol.setTimeHeader())) }
+    private fun startClockSync(source: String) {
+        if (!ready || writeChar == null) {
+            clockSync.value = ClockSyncInfo(ClockSyncState.FAILED, source = source)
+            return
+        }
+        clockTimeout?.let { handler.removeCallbacks(it) }
+        clockSource = source
+        clockAttempt = 1
+        val requestId = ++clockRequestId
+        clockSync.value = ClockSyncInfo(ClockSyncState.SETTING, source = source)
+        Log.d(CLOCK_TAG, "Setting ring time ($source), attempt 1")
+        writeClockPacket()
+        scheduleClockTimeout(requestId)
+    }
+
+    @SuppressLint("MissingPermission")
+    private fun writeClockPacket() {
+        if (ready && writeChar != null) {
+            val clockPacket = packet(RingProtocol.setTimeHeader())
+            Log.d(CLOCK_TAG, "Writing phone date/time: ${hex(clockPacket)}")
+            doWrite(clockPacket)
+        }
+    }
+
+    private fun scheduleClockTimeout(requestId: Int) {
+        clockTimeout = Runnable {
+            if (requestId != clockRequestId || clockSync.value.state != ClockSyncState.SETTING) return@Runnable
+            if (clockAttempt == 1 && ready && !syncing) {
+                clockAttempt = 2
+                Log.d(CLOCK_TAG, "No acknowledgement yet; retrying ring time ($clockSource)")
+                writeClockPacket()
+                scheduleClockTimeout(requestId)
+            } else {
+                clockTimeout = null
+                clockSync.value = ClockSyncInfo(ClockSyncState.FAILED, source = clockSource)
+                Log.w(CLOCK_TAG, "Ring did not acknowledge time update ($clockSource)")
+                if (clockSource == "manual") status.value = "Ring did not confirm the time update"
+            }
+        }
+        handler.postDelayed(clockTimeout!!, CLOCK_ACK_TIMEOUT_MS)
+    }
+
+    private fun handleClockAck() {
+        if (clockSync.value.state != ClockSyncState.SETTING) return
+        clockTimeout?.let { handler.removeCallbacks(it) }
+        clockTimeout = null
+        Log.d(CLOCK_TAG, "Ring acknowledged time update ($clockSource)")
+        clockSync.value = ClockSyncInfo(
+            state = ClockSyncState.CONFIRMED,
+            confirmedAtMs = System.currentTimeMillis(),
+            source = clockSource,
+        )
+        if (clockSource == "manual") status.value = "Ring time synced ✓"
+    }
+
+    private fun failClockSyncIfPending() {
+        val current = clockSync.value
+        if (current.state == ClockSyncState.CONNECTING || current.state == ClockSyncState.SETTING) {
+            clockTimeout?.let { handler.removeCallbacks(it) }
+            clockTimeout = null
+            clockSync.value = ClockSyncInfo(ClockSyncState.FAILED, source = current.source)
+        }
+    }
 
     /** Re-enable HR history logging at [logIntervalMin] (Colmi set-HR-log, cmd 0x16 sub 0x02). */
     @SuppressLint("MissingPermission")
@@ -358,8 +460,19 @@ class RingBle(private val context: Context, @Volatile var mac: String) {
             when (ns) {
                 BluetoothProfile.STATE_CONNECTED -> { status.value = "Discovering…"; g.discoverServices() }
                 BluetoothProfile.STATE_DISCONNECTED -> {
+                    val failedWhileConnecting = connecting && !ready
                     connecting = false; ready = false; writeChar = null; v2WriteChar = null
                     conn.value = Conn.DISCONNECTED
+                    failClockSyncIfPending()
+                    if (failedWhileConnecting) {
+                        status.value = "Couldn't reach the ring — wake it & close the QRing app."
+                        if (liveRequested) {
+                            liveRequested = false
+                            liveStatus.value = "Couldn't reach the ring — wake it & close QRing"
+                        }
+                    } else if (liveOn) {
+                        liveStatus.value = "Ring disconnected — tap Stop, then Measure to retry"
+                    }
                     if (gatt === g) gatt = null
                     try { g.close() } catch (_: Exception) {}
                 }
@@ -371,7 +484,12 @@ class RingBle(private val context: Context, @Volatile var mac: String) {
             val svc1 = g.getService(SVC)
             writeChar = svc1?.getCharacteristic(WRITE_UUID)
             val nc1 = svc1?.getCharacteristic(NOTIFY_UUID)
-            if (writeChar == null || nc1 == null) { connecting = false; status.value = "Ring service not found"; return }
+            if (writeChar == null || nc1 == null) {
+                connecting = false
+                status.value = "Ring service not found"
+                failClockSyncIfPending()
+                return
+            }
             cccdQueue.clear()
             g.setCharacteristicNotification(nc1, true)
             nc1.getDescriptor(CCCD)?.let { cccdQueue.addLast(it) }
@@ -405,6 +523,7 @@ class RingBle(private val context: Context, @Volatile var mac: String) {
     private fun handleResponse(r: ByteArray) {
         if (r.isEmpty()) return
         when (r[0].toInt() and 0xFF) {
+            0x01 -> handleClockAck()
             CMD_CAMERA -> handleCameraNotify(r)
             CMD_BATTERY -> if (r.size >= 3) battery.value = BatteryInfo(r[1].toInt() and 0xFF, (r[2].toInt() and 0xFF) == 1)
             CMD_HR_LOG -> if (r.size >= 4) interval.value = IntervalInfo((r[2].toInt() and 0xFF) == 1, r[3].toInt() and 0xFF).also {
@@ -449,16 +568,42 @@ class RingBle(private val context: Context, @Volatile var mac: String) {
         val off = syncOffsets.removeFirstOrNull()
         if (off == null) { startSteps(); return }
         curSize = 0; curCount = 0; curDayIdx = 0; curDayStart = midnight(off)
-        scheduleStall(); doWrite(packet(hrReadPayload(curDayStart)))
+        val request = packet(hrReadPayload(curDayStart))
+        Log.d(
+            HR_HISTORY_TAG,
+            "Requesting dayOffset=$off localStart=$curDayStart wire=${RingProtocol.localWallEpoch(curDayStart)} -> ${hex(request)}",
+        )
+        scheduleStall(); doWrite(request)
     }
 
     private fun handleHrPacket(r: ByteArray) {
         if (!syncing || r.size < 15) return
+        Log.d(HR_HISTORY_TAG, "HR <- ${hex(r)}")
         scheduleStall()
         when (r[1].toInt() and 0xFF) {
             0xFF -> requestNextDay()
-            0 -> { curSize = r[2].toInt() and 0xFF; curInterval = (r[3].toInt() and 0xFF).coerceAtLeast(1); curCount = 0; curDayIdx = 0; if (curSize == 0) requestNextDay() }
-            1 -> { curDayStart = le32(r, 2); for (i in 6..14) addHr(r[i]); curCount++; if (curCount >= curSize - 1) requestNextDay() }
+            0 -> {
+                curSize = r[2].toInt() and 0xFF
+                curInterval = (r[3].toInt() and 0xFF).coerceAtLeast(1)
+                curCount = 0
+                curDayIdx = 0
+                Log.d(HR_HISTORY_TAG, "History header packets=$curSize interval=$curInterval")
+                if (curSize == 0) requestNextDay()
+            }
+            1 -> {
+                // The request already identifies the phone-local day being fetched. A ring whose
+                // battery died can return a stale day in this field even after accepting a new
+                // clock command. Keep the requested date, as Gadgetbridge does, so today's samples
+                // cannot be silently filed under yesterday.
+                val ringDayStart = le32(r, 2)
+                val expectedWireDay = RingProtocol.localWallEpoch(curDayStart)
+                if (ringDayStart != expectedWireDay) {
+                    Log.w(HR_HISTORY_TAG, "Ignoring unexpected HR day $ringDayStart; expected $expectedWireDay")
+                }
+                for (i in 6..14) addHr(r[i])
+                curCount++
+                if (curCount >= curSize - 1) requestNextDay()
+            }
             else -> { for (i in 2..14) addHr(r[i]); curCount++; if (curCount >= curSize - 1) requestNextDay() }
         }
     }
@@ -589,7 +734,7 @@ class RingBle(private val context: Context, @Volatile var mac: String) {
     private fun finishSync() {
         cancelStall()
         if (!syncing) return
-        syncing = false; syncingState.value = false
+        syncing = false
         val samples = mutableListOf<MetricSample>()
         val counts = mutableMapOf<MetricType, Int>()
         for (m in MetricType.entries) {
@@ -600,8 +745,13 @@ class RingBle(private val context: Context, @Volatile var mac: String) {
         val sleep = sleepCol.map { SleepSegment(it.key, it.value[0], it.value[1]) }
         val result = SyncResult(samples, sleep, counts, sleep.size)
         syncStatus.value = "Synced ✓  " + MetricType.entries.joinToString("·") { "${it.short} ${counts[it] ?: 0}" } + " · Sleep ${sleep.size}"
+        // A sync can happen on a long-lived connection, so refresh the clock before resuming any
+        // live stream that was paused for the data transfer.
+        if (conn.value == Conn.CONNECTED) startClockSync("sync")
+        // Keep the shared live stream paused until both clock attempts have had time to finish.
+        handler.postDelayed({ syncingState.value = false }, CLOCK_ACK_TIMEOUT_MS * 2 + 100)
         handler.post { onSyncDone?.invoke(result) }
-        handler.postDelayed({ if (conn.value == Conn.CONNECTED) readBatteryNow() }, 500)
+        handler.postDelayed({ if (conn.value == Conn.CONNECTED) readBatteryNow() }, 1_000)
     }
 
     private fun scheduleStall() { cancelStall(); syncTimeout = Runnable { if (syncing) stageTimedOut() }; handler.postDelayed(syncTimeout!!, SYNC_STALL_MS) }
@@ -636,7 +786,7 @@ class RingBle(private val context: Context, @Volatile var mac: String) {
     private fun buildSetPacket(min: Int) = packet(byteArrayOf(0x16, 0x02, 0x01, (min and 0xFF).toByte()))
     private fun buildReadPacket() = packet(byteArrayOf(0x16, 0x01))
     private fun hrReadPayload(epoch: Long): ByteArray {
-        val ts = epoch.toInt()
+        val ts = RingProtocol.localWallEpoch(epoch).toInt()
         return byteArrayOf(CMD_HR_READ.toByte(), (ts and 0xFF).toByte(), ((ts ushr 8) and 0xFF).toByte(), ((ts ushr 16) and 0xFF).toByte(), ((ts ushr 24) and 0xFF).toByte())
     }
 
@@ -651,6 +801,7 @@ class RingBle(private val context: Context, @Volatile var mac: String) {
     @SuppressLint("MissingPermission")
     private fun closeGatt() {
         cancelConnectTimeout()
+        failClockSyncIfPending()
         liveOn = false; liveKeepAlive?.let { handler.removeCallbacks(it) }; liveKeepAlive = null; liveHr.value = null
         cameraKeepAlive?.let { handler.removeCallbacks(it) }; cameraKeepAlive = null
         try { gatt?.disconnect(); gatt?.close() } catch (_: Exception) {}

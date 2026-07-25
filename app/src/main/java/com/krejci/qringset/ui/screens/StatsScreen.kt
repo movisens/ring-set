@@ -87,7 +87,8 @@ fun StatsScreen(vm: RingViewModel) {
         Column(Modifier.padding(14.dp)) {
             // Older data exists but none falls in the chosen window: explain instead of showing the
             // generic "no data" placeholder, which wrongly implies the ring never recorded anything.
-            if (ranged.size < 2 && points.isNotEmpty()) {
+            // One fresh reading is still data; MetricChart renders it as a one-point card.
+            if (ranged.isEmpty() && points.isNotEmpty()) {
                 val scope = if (ranges[rangeIdx].second == -1L) "today" else "the last ${ranges[rangeIdx].first}"
                 Box(Modifier.fillMaxWidth().height(250.dp), contentAlignment = Alignment.Center) {
                     Text(
