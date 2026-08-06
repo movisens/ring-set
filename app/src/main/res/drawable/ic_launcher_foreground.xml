@@ -1,21 +1,53 @@
 <?xml version="1.0" encoding="utf-8"?>
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:aapt="http://schemas.android.com/aapt"
     android:width="108dp"
     android:height="108dp"
     android:viewportWidth="108"
     android:viewportHeight="108">
-    <!-- ring -->
+
+    <!-- Soft luminous halo -->
+    <path android:pathData="M20,54 a34,34 0 1,0 68,0 a34,34 0 1,0 -68,0">
+        <aapt:attr name="android:fillColor">
+            <gradient
+                android:type="radial"
+                android:centerX="54" android:centerY="54" android:gradientRadius="34">
+                <item android:offset="0.0" android:color="#8C22D3EE" />
+                <item android:offset="0.62" android:color="#2022D3EE" />
+                <item android:offset="1.0" android:color="#0022D3EE" />
+            </gradient>
+        </aapt:attr>
+    </path>
+
+    <!-- Thin ring, teal → cyan -->
     <path
         android:fillColor="#00000000"
-        android:strokeColor="#22D3EE"
-        android:strokeWidth="7"
-        android:pathData="M26,54 a28,28 0 1,0 56,0 a28,28 0 1,0 -56,0" />
-    <!-- heartbeat pulse -->
+        android:strokeWidth="3.8"
+        android:pathData="M29,54 a25,25 0 1,0 50,0 a25,25 0 1,0 -50,0">
+        <aapt:attr name="android:strokeColor">
+            <gradient
+                android:startX="30" android:startY="30"
+                android:endX="78" android:endY="78"
+                android:type="linear"
+                android:startColor="#5AEBF7"
+                android:endColor="#0FA6C6" />
+        </aapt:attr>
+    </path>
+
+    <!-- Orbiting node (soft glow + bright core) -->
+    <path
+        android:fillColor="#4022D3EE"
+        android:pathData="M64.7,36.3 a7,7 0 1,0 14,0 a7,7 0 1,0 -14,0" />
+    <path
+        android:fillColor="#EAF9FF"
+        android:pathData="M67.5,36.3 a4.2,4.2 0 1,0 8.4,0 a4.2,4.2 0 1,0 -8.4,0" />
+
+    <!-- Coral heartbeat -->
     <path
         android:fillColor="#00000000"
-        android:strokeColor="#F472B6"
-        android:strokeWidth="5"
+        android:strokeColor="#FB7AA8"
+        android:strokeWidth="4.4"
         android:strokeLineCap="round"
         android:strokeLineJoin="round"
-        android:pathData="M36,54 h8 l4,-12 l7,24 l5,-12 h8" />
+        android:pathData="M39,54 l7,0 l3.5,-10 l5,20 l3.5,-10 l7,0" />
 </vector>

@@ -1,0 +1,80 @@
+package com.krejci.halo.ble
+
+import java.util.Calendar
+
+/**
+ * Pure, stateless helpers for the Colmi/QRing BLE wire format — no Android or connection state.
+ *
+ * Commands are 16-byte packets `[cmd, …subdata…, checksum]` where
+ * `checksum = sum(bytes[0..14]) & 0xff`. Log payloads pack little-endian integers and
+ * per-day timestamps, so the byte readers and epoch helpers the parsers need live here too.
+ */
+object RingProtocol {
+
+    /** Build a 16-byte command packet from its header bytes, appending the checksum. */
+    fun packet(head: ByteArray): ByteArray {
+        val p = ByteArray(16)
+        System.arraycopy(head, 0, p, 0, head.size)
+        var sum = 0
+        for (i in 0..14) sum += p[i].toInt() and 0xFF
+        p[15] = (sum and 0xFF).toByte()
+        return p
+    }
+
+    /** Unsigned little-endian 16-bit value at [off]. */
+    fun u16(r: ByteArray, off: Int) = (r[off].toInt() and 0xFF) or ((r[off + 1].toInt() and 0xFF) shl 8)
+
+    /** Unsigned little-endian 32-bit value at [off]. */
+    fun le32(r: ByteArray, off: Int): Long =
+        (r[off].toLong() and 0xFF) or ((r[off + 1].toLong() and 0xFF) shl 8) or
+            ((r[off + 2].toLong() and 0xFF) shl 16) or ((r[off + 3].toLong() and 0xFF) shl 24)
+
+    /** Read a binary-coded-decimal byte (e.g. 0x26 -> 26). */
+    fun bcd(b: Byte): Int = ("%02x".format(b.toInt() and 0xFF)).toInt()
+
+    /** Encode 0..99 as a binary-coded-decimal byte (e.g. 26 -> 0x26). Inverse of [bcd]. */
+    fun bcdEncode(v: Int): Byte = (((v / 10) shl 4) or (v % 10)).toByte()
+
+    /**
+     * Set-time command header (cmd 0x01): BCD year(%100)/month/day/hour/minute/second.
+     * Remaining packet bytes must stay zero; some firmware interprets an extra byte after seconds
+     * as part of its date state. Checksum is added by [packet].
+     */
+    fun setTimeHeader(now: Calendar = Calendar.getInstance()): ByteArray = byteArrayOf(
+        0x01,
+        bcdEncode(now.get(Calendar.YEAR) % 100),
+        bcdEncode(now.get(Calendar.MONTH) + 1),
+        bcdEncode(now.get(Calendar.DAY_OF_MONTH)),
+        bcdEncode(now.get(Calendar.HOUR_OF_DAY)),
+        bcdEncode(now.get(Calendar.MINUTE)),
+        bcdEncode(now.get(Calendar.SECOND)),
+    )
+
+    /** Space-separated hex dump, for logging raw packets. */
+    fun hex(b: ByteArray) = b.joinToString(" ") { "%02x".format(it.toInt() and 0xFF) }
+
+    /** Unix seconds at local midnight, [dayOffset] days from today. */
+    fun midnight(dayOffset: Int): Long {
+        val c = Calendar.getInstance()
+        c.set(Calendar.HOUR_OF_DAY, 0); c.set(Calendar.MINUTE, 0); c.set(Calendar.SECOND, 0); c.set(Calendar.MILLISECOND, 0)
+        c.add(Calendar.DAY_OF_MONTH, dayOffset)
+        return c.timeInMillis / 1000
+    }
+
+    /**
+     * Convert a real Unix epoch to the ring's timezone-less "local wall clock as UTC" epoch.
+     * Timestamped history requests use this representation rather than actual UTC.
+     */
+    fun localWallEpoch(epochSec: Long): Long {
+        val c = Calendar.getInstance()
+        c.timeInMillis = epochSec * 1000
+        return epochSec + (c.get(Calendar.ZONE_OFFSET) + c.get(Calendar.DST_OFFSET)) / 1000
+    }
+
+    /** Unix seconds for a local wall-clock date/time. */
+    fun ymd(y: Int, mo0: Int, d: Int, h: Int, mi: Int): Long {
+        val c = Calendar.getInstance()
+        c.set(y, mo0, d, h, mi, 0); c.set(Calendar.MILLISECOND, 0)
+        return c.timeInMillis / 1000
+    }
+}

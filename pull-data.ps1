@@ -1,15 +1,15 @@
-# Pull RingSet's synced CSV data from a USB-connected phone to a folder on this PC.
+# Pull Halo's synced CSV data from a USB-connected phone to a folder on this PC.
 #
 #   .\pull-data.ps1                       # -> %USERPROFILE%\Desktop\ring-data
 #   .\pull-data.ps1 -Dest D:\health\ring  # custom folder
 #
 # How: the debug build is debuggable, so `adb run-as` can read the app's private
-# files dir (/data/data/com.krejci.qringset/files) without root or storage permissions.
+# files dir (/data/data/com.krejci.halo/files) without root or storage permissions.
 # First tap "Sync heart rate" in the app so there's a fresh CSV to pull.
 param([string]$Dest = "$env:USERPROFILE\Desktop\ring-data")
 $ErrorActionPreference = "Stop"
 
-$pkg = "com.krejci.qringset"
+$pkg = "com.krejci.halo"
 $adb = if ($env:ANDROID_HOME) { Join-Path $env:ANDROID_HOME "platform-tools\adb.exe" } else { "adb" }
 
 # Is a device connected?

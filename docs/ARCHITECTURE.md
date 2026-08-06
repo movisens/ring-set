@@ -1,6 +1,6 @@
 # Architecture
 
-Ring Set is a small, layered **MVVM** Android app. Everything runs on-device; there is no backend.
+Halo is a small, layered **MVVM** Android app. Everything runs on-device; there is no backend.
 
 ```
 ┌─────────────┐   BLE    ┌──────────────┐        ┌──────────────┐      ┌───────────────┐
@@ -15,7 +15,7 @@ Ring Set is a small, layered **MVVM** Android app. Everything runs on-device; th
 ## Packages
 
 ```
-com.krejci.qringset
+com.krejci.halo
 ├─ MainActivity.kt          Compose host, permissions (BLUETOOTH_CONNECT/SCAN, POST_NOTIFICATIONS),
 │                           immersive full-screen, CSV share intent.
 ├─ Notifier.kt              HR-alert notification channel + poster.
@@ -46,7 +46,8 @@ com.krejci.qringset
 └─ ui/
    ├─ App.kt                Top-level scaffold: the Screen enum + floating nav + tab routing.
    ├─ RingViewModel.kt      AndroidViewModel: exposes repo/BLE state, actions, profile, workouts.
-   ├─ Theme.kt              Material 3 dark/light theme, per-metric colors, SleepColor.
+   ├─ Theme.kt              Material 3 theme: Refined-Midnight palette, ThemeMode (system/light/dark)
+   │                        + selectable Accent (Cyan/Violet/Ember/Mint/Rose), per-metric colors.
    ├─ components/           Reusable component library (no screen-specific logic):
    │  ├─ ScreenHeader.kt    Title + subtitle + eye/info dialog, used by every screen.
    │  ├─ ArcGauge.kt        Tachometer-style progress gauge (score, steps, sleep).

@@ -1,11 +1,11 @@
 # AGENTS.md — how to pull the ring's data off the phone
 
 Instructions for an automated agent (or a human) to export the data that the
-**Ring Set** app has synced from the ring, and copy it to the computer.
+**Halo** app has synced from the ring, and copy it to the computer.
 
 ## What/where
 - The app reads the ring's stored logs over BLE and writes/merges them into CSVs in its
-  private files dir on the phone: `/data/data/com.krejci.qringset/files/`.
+  private files dir on the phone: `/data/data/com.krejci.halo/files/`.
   - `ring_hr.csv` — `timestamp,epoch_s,bpm,source`
   - `ring_steps.csv` — `timestamp,epoch_s,steps,source` (15-min buckets)
   - `ring_spo2.csv` — `timestamp,epoch_s,spo2,source` (hourly %)
@@ -32,8 +32,8 @@ Instructions for an automated agent (or a human) to export the data that the
 
 ## Manual equivalent
 ```bash
-adb exec-out run-as com.krejci.qringset ls files
-adb exec-out run-as com.krejci.qringset cat files/ring_hr.csv > ring_hr.csv
+adb exec-out run-as com.krejci.halo ls files
+adb exec-out run-as com.krejci.halo cat files/ring_hr.csv > ring_hr.csv
 ```
 (`run-as` reads relative to the app's data dir, so the path is `files/ring_hr.csv`.)
 

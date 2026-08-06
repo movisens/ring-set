@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <!-- Window/base theme only; the real UI theme is Compose (RingSetTheme). -->
-    <style name="Theme.QRingSet" parent="android:Theme.Material.NoActionBar">
+    <!-- Window/base theme only; the real UI theme is Compose (HaloTheme). -->
+    <style name="Theme.Halo" parent="android:Theme.Material.NoActionBar">
         <item name="android:windowBackground">@color/bg0</item>
         <item name="android:statusBarColor">@color/bg0</item>
         <item name="android:navigationBarColor">@color/bg0</item>

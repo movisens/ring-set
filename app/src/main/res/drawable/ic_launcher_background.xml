@@ -5,14 +5,16 @@
     android:height="108dp"
     android:viewportWidth="108"
     android:viewportHeight="108">
+    <!-- Refined Midnight base: deep ink, subtle diagonal lift -->
     <path android:pathData="M0,0 h108 v108 h-108 z">
         <aapt:attr name="android:fillColor">
             <gradient
-                android:startX="0" android:startY="0"
-                android:endX="108" android:endY="108"
+                android:startX="10" android:startY="6"
+                android:endX="100" android:endY="104"
                 android:type="linear"
-                android:startColor="#0B1026"
-                android:endColor="#1E293B" />
+                android:startColor="#0A1226"
+                android:centerColor="#0A1020"
+                android:endColor="#05080F" />
         </aapt:attr>
     </path>
 </vector>

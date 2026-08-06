@@ -13,4 +13,4 @@ $adb = if ($env:ANDROID_HOME) { Join-Path $env:ANDROID_HOME "platform-tools\adb.
 $apk = Join-Path $here "app\build\outputs\apk\debug\app-debug.apk"
 Write-Host "Installing $apk ..." -ForegroundColor Cyan
 & $adb install -r $apk
-Write-Host "Done. Launch 'Ring Set' on the phone." -ForegroundColor Green
+Write-Host "Done. Launch 'Halo' on the phone." -ForegroundColor Green

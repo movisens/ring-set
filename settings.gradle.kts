@@ -12,5 +12,5 @@ dependencyResolutionManagement {
         mavenCentral()
     }
 }
-rootProject.name = "QRingSet"
+rootProject.name = "Halo"
 include(":app")

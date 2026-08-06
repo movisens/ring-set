@@ -22,11 +22,11 @@ val ringMac: String = run {
 }
 
 android {
-    namespace = "com.krejci.qringset"
+    namespace = "com.krejci.halo"
     compileSdk = 35
 
     defaultConfig {
-        applicationId = "com.krejci.qringset"
+        applicationId = "com.krejci.halo"
         minSdk = 26
         targetSdk = 35
         versionCode = 1

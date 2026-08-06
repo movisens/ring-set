@@ -1,4 +1,6 @@
-# Ring Set
+# Halo
+
+> **Your ring. Your data.**
 
 A native **Android** companion app for **Colmi R0x-family** smart rings (the ones sold
 with the **QRing** app) that talks to the ring directly over **Bluetooth LE** — no account,
@@ -7,7 +9,7 @@ into a full, private replacement for the stock app: live heart rate, sleep stage
 insights and data export.
 
 <p align="center">
-  <img src="docs/screenshot.png" width="300" alt="Ring Set — Overview">
+  <img src="docs/screenshot.png" width="300" alt="Halo — Overview">
 </p>
 
 ## Features
@@ -32,9 +34,11 @@ An eight-tab Jetpack Compose app with a floating navigation bar:
   1–255 min setter, automatic and manual **ring clock sync**, a "reconnect after setting" option,
   and **HR alerts** (spike / prolonged-high).
 - **You (Profile)** — age, sex, height, weight, resting HR and goals that personalise the insights;
-  resting HR can be typed, computed from your data, or **measured on the spot**.
+  resting HR can be typed, computed from your data, or **measured on the spot**. Also holds
+  **Appearance** — a light / dark / system theme switch and a five-colour **accent picker**
+  (Cyan · Violet · Ember · Mint · Rose) that recolours the whole app instantly.
 
-The official QRing app only logs heart rate every **30 or 60 minutes**; Ring Set writes the raw
+The official QRing app only logs heart rate every **30 or 60 minutes**; Halo writes the raw
 BLE command so you can pick **any interval from 1 to 255 minutes** for much denser HR/HRV data.
 
 > **Note:** on this hardware blood-oxygen (SpO₂), stress and HRV are on/off toggles with no separate
@@ -80,7 +84,7 @@ placeholder (`00:00:00:00:00:00`) that connects to nothing.
 1. **Wake the ring** — take it off the charger / put it on, so it advertises.
 2. **Close the QRing app** — BLE allows only one connection at a time; if the official app is
    connected this one can't reach the ring (and vice-versa).
-3. Open **Ring Set**. First launch asks for *Nearby devices* (Bluetooth) and notification
+3. Open **Halo**. First launch asks for *Nearby devices* (Bluetooth) and notification
    permissions — allow them.
 4. **Data → Sync now** pulls your logs; **Control** sets the interval; **Activity → Start** streams
    live HR (wear the ring snugly — it locks a reading after ~30 s).
