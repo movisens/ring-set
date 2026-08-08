@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="docs/halo-icon.png" width="120" alt="Halo icon">
+</p>
+
 # Halo
 
 > **Your ring. Your data.**
