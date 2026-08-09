@@ -170,4 +170,4 @@ QRing/Oudmon SDK. An independent hobby project, not affiliated with Colmi or QRi
 
 ## License
 
-[MIT](LICENSE)
+[PolyForm Noncommercial 1.0.0](LICENSE.md) — free for personal and non-commercial use; selling or other commercial use requires permission.
