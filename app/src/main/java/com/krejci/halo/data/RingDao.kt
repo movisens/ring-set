@@ -27,6 +27,28 @@ interface RingDao {
     @Query("SELECT * FROM samples WHERE metric = :m ORDER BY epoch")
     suspend fun samplesNow(m: String): List<SampleEntity>
 
+    /** Full-table reads/writes used by backup export & restore. */
+    @Query("SELECT * FROM samples ORDER BY metric, epoch")
+    suspend fun allSamplesNow(): List<SampleEntity>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertSamples(list: List<SampleEntity>)
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertWorkouts(list: List<WorkoutEntity>)
+
+    @Query("DELETE FROM samples")
+    suspend fun clearSamples()
+
+    @Query("DELETE FROM sleep")
+    suspend fun clearSleep()
+
+    @Query("DELETE FROM known_rings")
+    suspend fun clearRings()
+
+    @Query("DELETE FROM workouts")
+    suspend fun clearWorkouts()
+
     @Query("SELECT COUNT(*) FROM samples WHERE metric = :m")
     fun count(m: String): Flow<Int>
 

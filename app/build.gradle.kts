@@ -21,6 +21,16 @@ val ringMac: String = run {
     "00:00:00:00:00:00"
 }
 
+// Release signing is resolved from a gitignored keystore.properties at the repo root
+// (storeFile/storePassword/keyAlias/keyPassword). Absent -> release builds are UNSIGNED. Create and
+// BACK UP the keystore before distributing — see docs/RELEASING.md.
+val keystoreProperties = Properties().apply {
+    val f = rootProject.file("keystore.properties")
+    if (f.exists()) f.inputStream().use { load(it) }
+}
+val releaseSigningReady = listOf("storeFile", "storePassword", "keyAlias", "keyPassword")
+    .all { !keystoreProperties.getProperty(it).isNullOrBlank() }
+
 android {
     namespace = "com.krejci.halo"
     compileSdk = 35
@@ -29,15 +39,27 @@ android {
         applicationId = "com.krejci.halo"
         minSdk = 26
         targetSdk = 35
-        versionCode = 3
-        versionName = "2.1"
+        versionCode = 4
+        versionName = "2.2"
 
         buildConfigField("String", "RING_MAC", "\"$ringMac\"")
+    }
+
+    signingConfigs {
+        create("release") {
+            if (releaseSigningReady) {
+                storeFile = rootProject.file(keystoreProperties.getProperty("storeFile"))
+                storePassword = keystoreProperties.getProperty("storePassword")
+                keyAlias = keystoreProperties.getProperty("keyAlias")
+                keyPassword = keystoreProperties.getProperty("keyPassword")
+            }
+        }
     }
 
     buildTypes {
         release {
             isMinifyEnabled = false
+            if (releaseSigningReady) signingConfig = signingConfigs.getByName("release")
         }
     }
     compileOptions {

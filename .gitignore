@@ -4,6 +4,10 @@ app/build/
 local.properties
 *.log
 *.apk
+# Release signing — local-only secrets, never commit (see docs/RELEASING.md)
+keystore.properties
+*.jks
+*.keystore
 /screen*.png
 /backups/
 .idea/

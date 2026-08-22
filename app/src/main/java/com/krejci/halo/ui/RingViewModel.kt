@@ -19,7 +19,9 @@ import com.krejci.halo.Notifier
 import com.krejci.halo.ble.Conn
 import com.krejci.halo.ble.RingBle
 import com.krejci.halo.data.ActivityType
+import com.krejci.halo.data.BackupService
 import com.krejci.halo.data.MetricType
+import com.krejci.halo.data.RestoreSummary
 import com.krejci.halo.data.RingRepository
 import com.krejci.halo.data.SyncResult
 import com.krejci.halo.data.UserProfile
@@ -57,6 +59,15 @@ class RingViewModel(app: Application) : AndroidViewModel(app) {
     private val profileStore = UserProfileStore(prefs)
     val profile = MutableStateFlow(profileStore.load())
     fun saveProfile(p: UserProfile) { profileStore.save(p); profile.value = p }
+
+    // ---- backup / restore (full-fidelity JSON, survives uninstall/reinstall) ----
+    private val backup = BackupService(app)
+    suspend fun exportBackup(): String = backup.exportJson()
+    suspend fun importBackup(text: String): RestoreSummary {
+        val summary = backup.importJson(text)
+        profile.value = profileStore.load() // DB flows refresh themselves; profile is prefs-backed
+        return summary
+    }
 
     // ---- real-time workout session ----
     val workoutActive = MutableStateFlow(false)

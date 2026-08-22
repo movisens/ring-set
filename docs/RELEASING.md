@@ -27,28 +27,42 @@ app *in place* when both are signed with the **same key**. So:
 - Every subsequent GitHub release APK must be signed with that **same release keystore**, or the
   updater's download fails with `INSTALL_FAILED_UPDATE_INCOMPATIBLE`.
 
-## Signing: ring-set has NO release keystore yet ⚠️
+## Signing: the release keystore
 
-Right now `app/build.gradle.kts` has **no signing config** — `build-and-install.ps1` installs a
-**debug-signed** APK. That's fine for development, but the updater cannot self-update a debug-signed
-install from release APKs. Before distributing, add a release keystore exactly like
-workout-tracker's (see its `docs/RELEASING.md`):
+Release signing is wired in [`app/build.gradle.kts`](../app/build.gradle.kts) via a gitignored
+`keystore.properties` at the repo root:
 
-1. Create the key (run once, then **back it up** — losing it is unrecoverable):
+```
+storeFile=keystore.jks
+storePassword=<password>
+keyAlias=halo
+keyPassword=<password>
+```
 
-   ```
-   keytool -genkeypair -v -keystore keystore.jks -alias halo \
-     -keyalg RSA -keysize 2048 -validity 10000 \
-     -storepass <pw> -keypass <pw> -dname "CN=lukr-99, O=lukr-99, C=CZ"
-   ```
+`keystore.jks` (also gitignored) is the actual signing key — RSA 2048, ~27-year validity, cert
+SHA-256 `644de329…`. **Without these two files a release build comes out UNSIGNED.** `.gitignore`
+covers `keystore.properties`, `*.jks`, `*.keystore`.
 
-2. Add a gitignored `keystore.properties` (`storeFile`, `storePassword`, `keyAlias`, `keyPassword`)
-   and a `signingConfigs { release { … } }` + `buildTypes.release.signingConfig` block that reads it
-   (mirror workout-tracker's `app/build.gradle.kts`). Add `keystore.properties`, `*.jks`, `*.keystore`
-   to `.gitignore`.
-3. Keep **two** backups of `keystore.jks` + `keystore.properties`: a flash drive
-   (`G:\android-keystores\ring-set\`) **and** one more (cloud / password manager). The `.properties`
-   holds the password in plaintext, so ideally store it apart from the `.jks`.
+### ⚠️ Back it up — losing it is unrecoverable
+
+The keystore is **not in git** and cannot be regenerated to match. Lose it and you can never publish
+an update that upgrades an installed copy in place. Keep **at least two** independent copies:
+
+- Flash drive: `G:\android-keystores\ring-set\` (both files) — for carrying between stations.
+- Plus one more (cloud / password manager). The `.properties` holds the password in **plaintext**,
+  so ideally store it apart from the `.jks`.
+
+## Backing up your data (no data loss on reinstall)
+
+Because the first release build is signed with a new key, installing it requires an uninstall, which
+wipes the on-device Room database. Halo now has a **full backup/restore** for exactly this:
+
+- **Data tab → Backup & restore → Back up** writes a single JSON file (heart rate, steps, sleep,
+  workouts, known rings, and your profile) via the system file picker — save it to Downloads/Drive.
+- After reinstalling, **Data tab → Backup & restore → Restore** loads it back (replaces current
+  data). This is the only lossless path across an uninstall.
+
+(`pull-data.ps1` only pulls shareable CSV copies and cannot be re-imported — use Backup for restores.)
 
 ## Build & install
 
@@ -87,9 +101,20 @@ SDK note: this repo has no `sdk.dir` in `local.properties`, so it builds against
 
 The next time an installed copy taps **Check for updates**, it finds the release and updates in place.
 
-## Current state (2026-08-22)
+## First release install (one-time, from a debug-signed build)
 
-- Installed on the phone: **v2.1** (debug-signed). Updater UI verified live (renders, check runs,
-  reports "You're on the latest version.").
-- **No release keystore yet** and no GitHub Release published — both needed before the updater can
-  actually pull a new build.
+```
+# 1. In the app: Data -> Backup & restore -> Back up, save the JSON OUTSIDE the app.
+adb uninstall com.krejci.halo
+adb install app/build/outputs/apk/release/app-release.apk
+# 2. In the app: Data -> Backup & restore -> Restore, pick the JSON.
+```
+
+Verify: `adb shell dumpsys package com.krejci.halo | findstr version`.
+
+## Current state (2026-08-23)
+
+- Release keystore created + backed up to the flash drive (needs a second backup copy).
+- **v2.2** release APK built & signed (`app-release.apk`, cert `644de329…`) with the new
+  backup/restore feature. Not yet installed on the phone (was disconnected) and no GitHub Release
+  published yet — both pending.
