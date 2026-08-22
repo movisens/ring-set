@@ -22,6 +22,7 @@ import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
@@ -34,6 +35,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -56,6 +58,9 @@ import com.krejci.halo.ui.components.ChoiceChip
 import com.krejci.halo.ui.components.ScreenHeader
 import com.krejci.halo.ui.components.SectionLabel
 import com.krejci.halo.ui.metricColor
+import com.krejci.halo.update.AppRelease
+import com.krejci.halo.update.AppUpdater
+import kotlinx.coroutines.launch
 import java.util.Calendar
 import kotlin.math.roundToInt
 
@@ -159,7 +164,87 @@ fun ProfileScreen(vm: RingViewModel) {
     }
     Spacer(Modifier.height(6.dp))
 
+    SectionLabel("Updates")
+    UpdatesCard()
+    Spacer(Modifier.height(6.dp))
+
     if (showMeasure) MeasureRestingDialog(vm, onDismiss = { showMeasure = false }) { rhr = it.toString(); showMeasure = false }
+}
+
+@Composable
+private fun UpdatesCard() {
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    val updater = remember { AppUpdater(context, owner = "lukr-99", repo = "ring-set") }
+
+    var status by remember { mutableStateOf("") }
+    var busy by remember { mutableStateOf(false) }
+    var pending by remember { mutableStateOf<AppRelease?>(null) }
+
+    Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface), shape = RoundedCornerShape(18.dp)) {
+        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Text("Halo v${updater.currentVersion}", fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurface)
+            if (status.isNotBlank()) {
+                Text(status, fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.CenterVertically) {
+                OutlinedButton(
+                    onClick = {
+                        busy = true
+                        status = "Checking for updates…"
+                        scope.launch {
+                            val release = runCatching { updater.check() }.getOrNull()
+                            busy = false
+                            when {
+                                release != null -> { pending = release; status = "Update available: v${release.versionName}" }
+                                else -> status = "You're on the latest version."
+                            }
+                        }
+                    },
+                    enabled = !busy,
+                    modifier = Modifier.weight(1f),
+                ) { Text("Check for updates") }
+                if (busy) CircularProgressIndicator(Modifier.size(22.dp), strokeWidth = 2.dp)
+            }
+        }
+    }
+
+    val release = pending
+    if (release != null) {
+        AlertDialog(
+            onDismissRequest = { if (!busy) pending = null },
+            confirmButton = {
+                TextButton(
+                    enabled = !busy,
+                    onClick = {
+                        busy = true
+                        status = "Downloading v${release.versionName}…"
+                        scope.launch {
+                            val apk = runCatching { updater.download(release) }.getOrNull()
+                            busy = false
+                            if (apk != null) {
+                                pending = null
+                                status = "Launching installer…"
+                                runCatching { updater.install(apk) }
+                                    .onFailure { status = "Couldn't start the installer." }
+                            } else {
+                                status = "Download failed — try again later."
+                            }
+                        }
+                    },
+                ) { Text("Download & install") }
+            },
+            dismissButton = { TextButton(enabled = !busy, onClick = { pending = null }) { Text("Later") } },
+            title = { Text("Halo v${release.versionName}") },
+            text = {
+                Text(
+                    release.notes.ifBlank { "A new version is available." }.take(600),
+                    fontSize = 13.sp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            },
+        )
+    }
 }
 
 @Composable
