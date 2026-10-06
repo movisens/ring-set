@@ -242,7 +242,10 @@ class RingViewModel(app: Application) : AndroidViewModel(app) {
         // When the ring reports a shake in camera mode, tap the foreground camera's shutter.
         ble.onCameraShutter = { CameraShutterService.instance?.triggerShutter() }
         viewModelScope.launch {
-            repo.rememberRing(ble.mac, "R04")
+            // Touch the ring's lastSeen without clobbering its name (upsertRing is REPLACE) — the
+            // default here must only apply on the very first launch, not rename a scanned ring.
+            val known = repo.ringsNow().firstOrNull { it.mac == ble.mac }
+            repo.rememberRing(ble.mac, known?.name ?: "Colmi ring")
             // Keep on-phone exports aligned with DB migrations (for example the v4 source flag)
             // even before the next successful ring connection or manual measurement.
             repo.exportCsvs()

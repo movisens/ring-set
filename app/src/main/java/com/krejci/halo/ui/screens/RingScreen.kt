@@ -60,7 +60,8 @@ fun RingScreen(vm: RingViewModel, onScan: () -> Unit) {
                 val statusText = when (conn) { Conn.CONNECTED -> "Connected"; Conn.CONNECTING -> "Connecting…"; else -> "Not connected" }
                 val statusColor = if (conn == Conn.CONNECTED) Color(0xFF34D399) else MaterialTheme.colorScheme.onSurfaceVariant
                 Text(statusText, color = statusColor, fontWeight = FontWeight.Bold, fontSize = 18.sp)
-                Text("Colmi R04", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 13.sp)
+                Text(rings.firstOrNull { it.mac == vm.activeMac() }?.name ?: "Colmi ring",
+                    color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 13.sp)
                 if (conn != Conn.CONNECTED) {
                     Spacer(Modifier.height(8.dp))
                     OutlinedButton(onClick = { vm.readBattery() }) { Text("Connect") }
