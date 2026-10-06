@@ -47,7 +47,9 @@ BLE command so you can pick **any interval from 1 to 255 minutes** for much dens
 
 > **Note:** on this hardware blood-oxygen (SpO₂), stress and HRV are on/off toggles with no separate
 > interval — they sample alongside the HR cycle, so lowering the HR interval increases how often
-> they're taken. Sleep is auto-detected.
+> they're taken. The toggles live **on the ring** and default to off, so a ring that hasn't had them
+> enabled records nothing for those metrics and their CSVs stay empty. Turn them on under
+> **Control → Ring monitoring** (Halo re-applies them on every connect). Sleep is auto-detected.
 
 ## Build & install
 

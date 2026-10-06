@@ -80,6 +80,10 @@ class RingBle(private val context: Context, @Volatile var mac: String) {
     private var onReadyOnce: (() -> Unit)? = null
     /** HR-log interval re-armed on every connect (kept in sync with the user's Control setting). */
     @Volatile var logIntervalMin: Int = 5
+    /** SpO₂ / stress / HRV all-day monitoring toggles, mirrored on the ring on every connect. */
+    @Volatile var spo2On = true
+    @Volatile var stressOn = true
+    @Volatile var hrvOn = true
 
     // sync state
     private enum class Stage { HR, STEPS, SPO2, SLEEP, STRESS, HRV }
@@ -116,6 +120,12 @@ class RingBle(private val context: Context, @Volatile var mac: String) {
         private const val CMD_BIG_DATA = 0xBC
         private const val BD_SPO2 = 0x2A
         private const val BD_SLEEP = 0x27
+        // All-day monitoring toggles (Colmi auto-measure preferences). The ring only *records* a
+        // metric while its toggle is on — cmd 0x2c = SpO₂, 0x36 = stress, 0x38 = HRV, sub 0x02 = write.
+        private const val CMD_AUTO_SPO2_PREF = 0x2C
+        private const val CMD_AUTO_STRESS_PREF = 0x36
+        private const val CMD_AUTO_HRV_PREF = 0x38
+        private const val PREF_WRITE = 0x02
         // Real-time HR — matches the QRing/Oudmon SDK exactly:
         //   start:  StartHeartRateReq.getSimpleReq(1) -> [0x69, type=1, sub=0]
         //   poll:   RealTimeHeartRate(3)              -> [0x1e, 3]  (cmd 30, ~1s keepalive)
@@ -183,6 +193,16 @@ class RingBle(private val context: Context, @Volatile var mac: String) {
 
     fun readInterval() { status.value = "Reading…"; withRing { doWrite(buildReadPacket()) } }
     fun readBattery() { withRing { doWrite(packet(byteArrayOf(CMD_BATTERY.toByte()))) } }
+
+    /**
+     * Enable/disable all-day SpO₂, stress and HRV monitoring. The ring stores these toggles itself
+     * and only records a metric while its toggle is on — so a ring that shipped with them off syncs
+     * empty CSVs until this is sent. Kept in sync on every connect via [rearmExtraMetrics].
+     */
+    fun setExtraMetrics(spo2: Boolean, stress: Boolean, hrv: Boolean) {
+        spo2On = spo2; stressOn = stress; hrvOn = hrv
+        withRing { rearmExtraMetrics() }
+    }
 
     /**
      * Set the ring to the phone's current local wall-clock and wait for the ring's cmd 0x01
@@ -364,6 +384,9 @@ class RingBle(private val context: Context, @Volatile var mac: String) {
         // Re-arm HR logging every connect, like QRing does. Without this the ring can quietly stop
         // writing HR history (its other metrics keep logging), leaving heart rate frozen days back.
         handler.postDelayed({ rearmHrLogging() }, 2_200)
+        // Re-apply the all-day monitoring toggles too, in case a ring reset or the official app
+        // turned SpO₂/stress/HRV off — the ring only records those while its toggle is on.
+        handler.postDelayed({ rearmExtraMetrics() }, 2_350)
         // Run on the main handler so the sync accumulator and the (also main-posted) BLE
         // responses share one thread. Battery only when idle, to not collide with the sync's first request.
         handler.postDelayed({ if (pending != null) runPending() else readBatteryNow() }, 2_450)
@@ -453,6 +476,21 @@ class RingBle(private val context: Context, @Volatile var mac: String) {
     /** Re-enable HR history logging at [logIntervalMin] (Colmi set-HR-log, cmd 0x16 sub 0x02). */
     @SuppressLint("MissingPermission")
     private fun rearmHrLogging() { if (ready && writeChar != null) doWrite(buildSetPacket(logIntervalMin.coerceIn(1, 255))) }
+
+    /**
+     * Push the SpO₂/stress/HRV all-day-monitoring toggles to the ring. Sends are spaced because a
+     * write-without-response can be silently dropped by the BLE stack if fired back-to-back.
+     */
+    @SuppressLint("MissingPermission")
+    private fun rearmExtraMetrics() {
+        if (!ready || writeChar == null) return
+        val toggle = { cmd: Int, on: Boolean ->
+            packet(byteArrayOf(cmd.toByte(), PREF_WRITE.toByte(), if (on) 0x01 else 0x00))
+        }
+        handler.postDelayed({ if (ready) doWrite(toggle(CMD_AUTO_SPO2_PREF, spo2On)) }, 0)
+        handler.postDelayed({ if (ready) doWrite(toggle(CMD_AUTO_STRESS_PREF, stressOn)) }, 140)
+        handler.postDelayed({ if (ready) doWrite(toggle(CMD_AUTO_HRV_PREF, hrvOn)) }, 280)
+    }
 
     private val cb = object : BluetoothGattCallback() {
         @SuppressLint("MissingPermission")

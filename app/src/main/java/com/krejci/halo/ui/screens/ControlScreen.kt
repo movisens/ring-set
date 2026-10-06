@@ -101,6 +101,8 @@ fun ControlScreen(vm: RingViewModel) {
 
     BackgroundLoggingSection(vm)
 
+    MeasurementTogglesSection(vm)
+
     RingTimeSection(vm)
 
     // ---- connection: reconnect option + actions in one card ----
@@ -282,6 +284,44 @@ private fun CameraShutterSection(vm: RingViewModel) {
 
             if (!a11y) Text("Turn on the accessibility service first, or the shutter tap won't work.",
                 fontSize = 11.sp, color = MaterialTheme.colorScheme.error)
+        }
+    }
+}
+
+/** SpO₂ / stress / HRV are on/off switches stored on the ring itself; while off the ring records
+ *  nothing for that metric, so the charts and CSVs stay empty. These switches push the command to
+ *  the ring immediately and are re-applied on every connect. */
+@Composable
+private fun MeasurementTogglesSection(vm: RingViewModel) {
+    SectionLabel("Ring monitoring")
+    Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface), shape = CARD) {
+        Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            Text("All-day monitoring", fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.onSurface)
+            Text("These toggles live on the ring. If one is off the ring never records that metric, " +
+                "so its chart and CSV stay empty no matter how often you sync. They sample alongside " +
+                "the HR cycle (on = more detail, more battery).",
+                fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Column(Modifier.weight(1f)) {
+                    Text("SpO₂ (blood oxygen)", fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.onSurface)
+                    Text(if (vm.spo2Enabled) "On — recorded while worn" else "Off — nothing recorded", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+                Switch(checked = vm.spo2Enabled, onCheckedChange = { vm.updateSpo2(it) })
+            }
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Column(Modifier.weight(1f)) {
+                    Text("Stress", fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.onSurface)
+                    Text(if (vm.stressEnabled) "On — recorded while worn" else "Off — nothing recorded", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+                Switch(checked = vm.stressEnabled, onCheckedChange = { vm.updateStress(it) })
+            }
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Column(Modifier.weight(1f)) {
+                    Text("Heart-rate variability (HRV)", fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.onSurface)
+                    Text(if (vm.hrvEnabled) "On — recorded while worn" else "Off — nothing recorded", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+                Switch(checked = vm.hrvEnabled, onCheckedChange = { vm.updateHrv(it) })
+            }
         }
     }
 }

@@ -82,6 +82,21 @@ class RingViewModel(app: Application) : AndroidViewModel(app) {
     var lastSync by mutableStateOf(prefs.getLong("last_sync", 0L))
         private set
 
+    // ---- all-day monitoring toggles (stored on the ring, not just the phone) ----
+    // SpO₂ / stress / HRV are on/off switches on the device itself: while one is off the ring
+    // records nothing for that metric, so the charts and CSVs stay empty. Default on so a fresh
+    // install starts collecting; each switch pushes its command to the ring right away and the
+    // ring re-applies them on every connect.
+    var spo2Enabled by mutableStateOf(prefs.getBoolean("spo2_monitoring", true))
+        private set
+    var stressEnabled by mutableStateOf(prefs.getBoolean("stress_monitoring", true))
+        private set
+    var hrvEnabled by mutableStateOf(prefs.getBoolean("hrv_monitoring", true))
+        private set
+    fun updateSpo2(b: Boolean) { spo2Enabled = b; prefs.edit().putBoolean("spo2_monitoring", b).apply(); ble.setExtraMetrics(spo2Enabled, stressEnabled, hrvEnabled) }
+    fun updateStress(b: Boolean) { stressEnabled = b; prefs.edit().putBoolean("stress_monitoring", b).apply(); ble.setExtraMetrics(spo2Enabled, stressEnabled, hrvEnabled) }
+    fun updateHrv(b: Boolean) { hrvEnabled = b; prefs.edit().putBoolean("hrv_monitoring", b).apply(); ble.setExtraMetrics(spo2Enabled, stressEnabled, hrvEnabled) }
+
     // ---- appearance (theme mode + accent) ----
     var themeMode by mutableStateOf(ThemeMode.from(prefs.getString("theme_mode", null)))
         private set
@@ -222,6 +237,8 @@ class RingViewModel(app: Application) : AndroidViewModel(app) {
     init {
         // Seed the HR-log interval the ring is re-armed with on connect from the saved setting.
         ble.logIntervalMin = lastInterval
+        // Seed the all-day monitoring toggles so a connect re-applies what the user chose.
+        ble.spo2On = spo2Enabled; ble.stressOn = stressEnabled; ble.hrvOn = hrvEnabled
         // When the ring reports a shake in camera mode, tap the foreground camera's shutter.
         ble.onCameraShutter = { CameraShutterService.instance?.triggerShutter() }
         viewModelScope.launch {
