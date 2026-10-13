@@ -157,6 +157,7 @@ class RingBle(private val context: Context, @Volatile var mac: String) {
         private const val LIVE_TAG = "RingLive"
         private const val CLOCK_TAG = "RingClock"
         private const val HR_HISTORY_TAG = "RingHrHistory"
+        private const val STEPS_TAG = "RingSteps"
     }
 
     // ---------- public actions ----------
@@ -669,6 +670,8 @@ class RingBle(private val context: Context, @Volatile var mac: String) {
         val q = r[4].toInt() and 0xFF
         val ts = ymd(year, bcd(r[2]) - 1, bcd(r[3]), q / 4, (q % 4) * 15)
         val steps = u16(r, 9)
+        Log.d(STEPS_TAG, "STEPS <- ${hex(r)}")
+        Log.d(STEPS_TAG, "  parsed: ${bcd(r[2])}/${bcd(r[3])} q=$q hour=${q / 4} min=${(q % 4) * 15} steps=$steps ts=$ts")
         if (steps in 0..100_000 && year in 2020..2100) addSample(MetricType.STEPS, ts, steps)
         if ((r[5].toInt() and 0xFF) >= (r[6].toInt() and 0xFF) - 1) requestNextStepsDay()
     }
